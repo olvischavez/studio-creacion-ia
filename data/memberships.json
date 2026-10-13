@@ -1,0 +1,67 @@
+{
+  "users": {
+    "olvischavezmustafa@gmail.com": {
+      "email": "olvischavezmustafa@gmail.com",
+      "name": "Olvis Bolt (Propietario)",
+      "plan": "admin",
+      "status": "active",
+      "expiresAt": null,
+      "permissions": {
+        "allowedTabs": [
+          "ai",
+          "saved",
+          "admin"
+        ],
+        "canDownloadAudio": true,
+        "canTranslateEnglish": true,
+        "canExportScripts": true
+      },
+      "createdAt": "2026-10-03T18:10:52.345Z",
+      "lastLogin": "2026-10-13T15:51:06.294Z",
+      "photoURL": "https://lh3.googleusercontent.com/a/ACg8ocLbYzvkyUfJGoKRdjRjXVYauuvdNjXrZ0N8w8Q2HeZdEX7QuNnyJA=s96-c"
+    }
+  },
+  "tierConfig": {
+    "freePermissions": {
+      "allowedTabs": [],
+      "canDownloadAudio": false,
+      "canTranslateEnglish": false,
+      "canExportScripts": false
+    },
+    "paidPermissions": {
+      "allowedTabs": [
+        "ai",
+        "saved"
+      ],
+      "canDownloadAudio": true,
+      "canTranslateEnglish": true,
+      "canExportScripts": true
+    }
+  },
+  "qrSettings": {
+    "enabled": true,
+    "boliviaQrEnabled": true,
+    "boliviaBankName": "Banco Unión / BNB / BCP (Cualquier Banco con QR Simple)",
+    "boliviaAccountHolder": "Olvis Chávez Mustafa",
+    "boliviaAccountNumber": "Cuenta Corriente / Ahorros",
+    "boliviaAccountCi": "Santa Cruz, Bolivia",
+    "boliviaQrImageUrl": "",
+    "priceBs1Month": 70,
+    "priceBs3Months": 175,
+    "priceBs1Year": 550,
+    "priceUsd1Month": 10,
+    "priceUsd3Months": 25,
+    "priceUsd1Year": 80,
+    "binanceEnabled": true,
+    "binancePayId": "849201934",
+    "binanceUsdtAddress": "TYDzsYq7bVzM4xxxxxxxxxxxxxxTRC20",
+    "binanceNetwork": "USDT (TRC20 / BEP20 / Binance Pay)",
+    "binanceQrImageUrl": "",
+    "priceBinance1Month": 10,
+    "priceBinance3Months": 25,
+    "priceBinance1Year": 80
+  },
+  "pendingPayments": [],
+  "savedProjects": {},
+  "keys": []
+}

@@ -1,0 +1,192 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User profile with plan, status, and permissions",
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "User email address"
+        },
+        "name": {
+          "type": "string",
+          "description": "Display name of the user"
+        },
+        "plan": {
+          "type": "string",
+          "enum": ["free", "1_month", "3_months", "1_year", "lifetime", "admin"],
+          "description": "Current membership tier"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["active", "expired", "suspended"],
+          "description": "Account status"
+        },
+        "expiresAt": {
+          "type": "string",
+          "description": "ISO timestamp when the plan expires"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "ISO timestamp of account creation"
+        },
+        "lastLogin": {
+          "type": "string",
+          "description": "ISO timestamp of last sign in"
+        }
+      },
+      "required": ["email", "plan", "status", "createdAt"]
+    },
+    "SavedProject": {
+      "title": "SavedProject",
+      "description": "Saved AI documentary or POV short created by the user",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the saved project"
+        },
+        "userId": {
+          "type": "string",
+          "description": "UID of the owner"
+        },
+        "userEmail": {
+          "type": "string",
+          "description": "Email of the owner"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["flow_doc", "pov_short", "strategy"],
+          "description": "Project type"
+        },
+        "title": {
+          "type": "string",
+          "description": "Documentary or Short title"
+        },
+        "timestamp": {
+          "type": "string",
+          "description": "Readable timestamp string"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "ISO creation timestamp"
+        }
+      },
+      "required": ["id", "type", "title", "timestamp"]
+    },
+    "PaymentNotice": {
+      "title": "PaymentNotice",
+      "description": "Notification from user that they paid via Bolivia QR or Binance",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique payment identifier"
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "Email of the paying user"
+        },
+        "name": {
+          "type": "string",
+          "description": "Name or holder who transferred"
+        },
+        "plan": {
+          "type": "string",
+          "enum": ["1_month", "3_months", "1_year", "lifetime"],
+          "description": "Selected membership plan"
+        },
+        "amount": {
+          "type": "string",
+          "description": "Amount paid (e.g. 70 Bs or 10 USDT)"
+        },
+        "currency": {
+          "type": "string",
+          "enum": ["BOB", "USDT"],
+          "description": "Currency used"
+        },
+        "method": {
+          "type": "string",
+          "enum": ["qr_bolivia", "binance"],
+          "description": "Payment method"
+        },
+        "reference": {
+          "type": "string",
+          "description": "Receipt number, voucher ID, or Binance TxID"
+        },
+        "note": {
+          "type": "string",
+          "description": "Optional notes from user"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "approved", "rejected"],
+          "description": "Status of the payment notice"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "ISO timestamp of notice creation"
+        }
+      },
+      "required": ["id", "email", "plan", "amount", "currency", "method", "status", "createdAt"]
+    },
+    "LicenseKey": {
+      "title": "LicenseKey",
+      "description": "Membership license key for unlocking access",
+      "type": "object",
+      "properties": {
+        "key": {
+          "type": "string",
+          "description": "License key string"
+        },
+        "plan": {
+          "type": "string",
+          "enum": ["1_month", "3_months", "1_year", "lifetime"],
+          "description": "Plan unlocked by key"
+        },
+        "durationDays": {
+          "type": "number",
+          "description": "Duration in days"
+        },
+        "isUsed": {
+          "type": "boolean",
+          "description": "Whether the key has been claimed"
+        },
+        "usedByEmail": {
+          "type": "string",
+          "description": "Email that redeemed this key"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Creation timestamp"
+        },
+        "notes": {
+          "type": "string",
+          "description": "Notes for the admin"
+        }
+      },
+      "required": ["key", "plan", "durationDays", "isUsed", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "User profile documents indexed by Firebase Auth UID or normalized email"
+    },
+    "/users/{userId}/savedProjects/{projectId}": {
+      "schema": "SavedProject",
+      "description": "User saved documentary and short projects"
+    },
+    "/paymentNotices/{noticeId}": {
+      "schema": "PaymentNotice",
+      "description": "Payment notifications from QR Bolivia and Binance Pay"
+    },
+    "/licenseKeys/{keyId}": {
+      "schema": "LicenseKey",
+      "description": "Generated license keys for memberships"
+    }
+  }
+}

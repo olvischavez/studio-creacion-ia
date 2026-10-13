@@ -1,0 +1,71 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && 
+        (request.auth.token.email.lower() == 'olvischavezmustafa@gmail.com');
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && (request.auth.uid == userId || request.auth.token.email == userId);
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128;
+    }
+
+    // ==========================================
+    // USERS COLLECTION & SUBCOLLECTIONS
+    // ==========================================
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isOwner(userId) || isAdmin();
+      allow update: if isOwner(userId) || isAdmin();
+      allow delete: if isAdmin();
+
+      // User's saved projects (Documentaries, Shorts POV)
+      match /savedProjects/{projectId} {
+        allow read: if isOwner(userId) || isAdmin();
+        allow create: if (isOwner(userId) || isAdmin()) && isValidId(projectId);
+        allow update: if (isOwner(userId) || isAdmin()) && isValidId(projectId);
+        allow delete: if isOwner(userId) || isAdmin();
+      }
+    }
+
+    // ==========================================
+    // PAYMENT NOTIFICATIONS (QR Bolivia & Binance)
+    // ==========================================
+    match /paymentNotices/{noticeId} {
+      allow read: if isAdmin() || (isSignedIn() && resource.data.email == request.auth.token.email);
+      allow create: if isValidId(noticeId);
+      allow update, delete: if isAdmin();
+    }
+
+    // ==========================================
+    // LICENSE KEYS (Redemption & Admin management)
+    // ==========================================
+    match /licenseKeys/{keyId} {
+      // Users can read a key to validate / redeem it
+      allow read: if isSignedIn();
+      allow create, update, delete: if isAdmin();
+    }
+
+    // ==========================================
+    // GLOBAL SETTINGS (QR Settings, Prices)
+    // ==========================================
+    match /settings/{settingId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Default deny all other collections
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
