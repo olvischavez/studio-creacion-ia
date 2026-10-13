@@ -230,12 +230,25 @@ export const MembershipProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     // User must have an active plan or status
     if (currentUser.status !== 'active') return false;
     if (currentUser.plan === 'free') return false;
+    // If user's plan is expired by date, block access
+    if (currentUser.expiresAt && currentUser.plan !== 'lifetime') {
+      const expTime = new Date(currentUser.expiresAt).getTime();
+      if (!isNaN(expTime) && expTime <= Date.now()) {
+        return false;
+      }
+    }
     return (currentUser.permissions?.allowedTabs || []).includes(tabId);
   };
 
   const hasFeature = (feature: 'canDownloadAudio' | 'canTranslateEnglish' | 'canExportScripts'): boolean => {
     if (isMasterAdmin) return true;
     if (!currentUser || currentUser.status !== 'active' || currentUser.plan === 'free') return false;
+    if (currentUser.expiresAt && currentUser.plan !== 'lifetime') {
+      const expTime = new Date(currentUser.expiresAt).getTime();
+      if (!isNaN(expTime) && expTime <= Date.now()) {
+        return false;
+      }
+    }
     return Boolean(currentUser.permissions?.[feature]);
   };
 

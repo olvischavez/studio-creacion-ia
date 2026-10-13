@@ -852,6 +852,12 @@ export const AdminPanelTab: React.FC = () => {
                               <strong className="text-zinc-200 font-mono select-all">{notif.reference}</strong>
                             </div>
                           )}
+                          {(notif as any).paymentDate && (
+                            <div>
+                              <span>Fecha transferencia: </span>
+                              <strong className="text-amber-300 font-mono">{(notif as any).paymentDate}</strong>
+                            </div>
+                          )}
                           {notif.note && (
                             <div>
                               <span>Nota: </span>

@@ -38,6 +38,7 @@ export const QRPaymentModal: React.FC<QRPaymentModalProps> = ({
   const [notifyEmail, setNotifyEmail] = useState('');
   const [notifyName, setNotifyName] = useState('');
   const [notifyReference, setNotifyReference] = useState('');
+  const [notifyDate, setNotifyDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [notifyNote, setNotifyNote] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitSuccess, setSubmitSuccess] = useState(false);
@@ -166,6 +167,7 @@ export const QRPaymentModal: React.FC<QRPaymentModalProps> = ({
           currency,
           method: selectedMethod,
           reference: notifyReference.trim(),
+          paymentDate: notifyDate,
           note: notifyNote.trim(),
           status: 'pending',
           createdAt: new Date().toISOString()
@@ -186,6 +188,7 @@ export const QRPaymentModal: React.FC<QRPaymentModalProps> = ({
           currency,
           method: selectedMethod,
           reference: notifyReference.trim(),
+          paymentDate: notifyDate,
           note: notifyNote.trim()
         }),
       });
@@ -546,7 +549,7 @@ export const QRPaymentModal: React.FC<QRPaymentModalProps> = ({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <label className="text-xs font-semibold text-zinc-300 flex items-center gap-1">
-                    <span>Tu Correo (Gmail o Email):</span>
+                    <span>Tu Correo (Gmail):</span>
                     <span className="text-red-400">*</span>
                   </label>
                   <input
@@ -560,11 +563,13 @@ export const QRPaymentModal: React.FC<QRPaymentModalProps> = ({
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-xs font-semibold text-zinc-300">
-                    Tu Nombre o Remitente (Opcional):
+                  <label className="text-xs font-semibold text-zinc-300 flex items-center gap-1">
+                    <span>Tu Nombre Completo:</span>
+                    <span className="text-red-400">*</span>
                   </label>
                   <input
                     type="text"
+                    required
                     value={notifyName}
                     onChange={(e) => setNotifyName(e.target.value)}
                     placeholder="Ej: Juan Pérez"
@@ -575,30 +580,46 @@ export const QRPaymentModal: React.FC<QRPaymentModalProps> = ({
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <label className="text-xs font-semibold text-zinc-300">
-                    Nº de Comprobante / TxID (Opcional):
+                  <label className="text-xs font-semibold text-zinc-300 flex items-center gap-1">
+                    <span>Nº de Comprobante / TxID:</span>
+                    <span className="text-red-400">*</span>
                   </label>
                   <input
                     type="text"
+                    required
                     value={notifyReference}
                     onChange={(e) => setNotifyReference(e.target.value)}
-                    placeholder="Ej: 19482049 o Hash TxID"
+                    placeholder="Ej: 19482049"
                     className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-red-500 transition-colors"
                   />
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-xs font-semibold text-zinc-300">
-                    Mensaje para Olvis (Opcional):
+                  <label className="text-xs font-semibold text-zinc-300 flex items-center gap-1">
+                    <span>Fecha del Pago:</span>
+                    <span className="text-red-400">*</span>
                   </label>
                   <input
-                    type="text"
-                    value={notifyNote}
-                    onChange={(e) => setNotifyNote(e.target.value)}
-                    placeholder="Ej: Ya transferí el monto exacto"
+                    type="date"
+                    required
+                    value={notifyDate}
+                    onChange={(e) => setNotifyDate(e.target.value)}
                     className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-red-500 transition-colors"
                   />
                 </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-zinc-300">
+                  Descripción adicional / Nota (Opcional):
+                </label>
+                <input
+                  type="text"
+                  value={notifyNote}
+                  onChange={(e) => setNotifyNote(e.target.value)}
+                  placeholder="Ej: Transferencia realizada desde Banco Unión a las 14:30"
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-red-500 transition-colors"
+                />
               </div>
 
               {/* Botón Principal para Notificar Pago */}

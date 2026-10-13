@@ -11,61 +11,33 @@ service cloud.firestore {
         (request.auth.token.email.lower() == 'olvischavezmustafa@gmail.com');
     }
 
-    function isOwner(userId) {
-      return isSignedIn() && (request.auth.uid == userId || request.auth.token.email == userId);
-    }
-
-    function isValidId(id) {
-      return id is string && id.size() > 0 && id.size() <= 128;
-    }
-
-    // ==========================================
-    // USERS COLLECTION & SUBCOLLECTIONS
-    // ==========================================
+    // 1. USUARIOS Y TEMÁTICAS GUARDADAS
+    // Las temáticas quedan guardadas permanentemente aunque la membresía expire
     match /users/{userId} {
-      allow read: if isOwner(userId) || isAdmin();
-      allow create: if isOwner(userId) || isAdmin();
-      allow update: if isOwner(userId) || isAdmin();
-      allow delete: if isAdmin();
+      allow read, write: if isSignedIn();
 
-      // User's saved projects (Documentaries, Shorts POV)
       match /savedProjects/{projectId} {
-        allow read: if isOwner(userId) || isAdmin();
-        allow create: if (isOwner(userId) || isAdmin()) && isValidId(projectId);
-        allow update: if (isOwner(userId) || isAdmin()) && isValidId(projectId);
-        allow delete: if isOwner(userId) || isAdmin();
+        allow read, write: if isSignedIn();
       }
     }
 
-    // ==========================================
-    // PAYMENT NOTIFICATIONS (QR Bolivia & Binance)
-    // ==========================================
+    // 2. AVISOS DE PAGO QR Y BINANCE
+    // Los usuarios envían: nombre, correo, comprobante, fecha y descripción
     match /paymentNotices/{noticeId} {
-      allow read: if isAdmin() || (isSignedIn() && resource.data.email == request.auth.token.email);
-      allow create: if isValidId(noticeId);
+      allow create: if isSignedIn();
+      allow read: if isSignedIn();
       allow update, delete: if isAdmin();
     }
 
-    // ==========================================
-    // LICENSE KEYS (Redemption & Admin management)
-    // ==========================================
-    match /licenseKeys/{keyId} {
-      // Users can read a key to validate / redeem it
-      allow read: if isSignedIn();
-      allow create, update, delete: if isAdmin();
-    }
-
-    // ==========================================
-    // GLOBAL SETTINGS (QR Settings, Prices)
-    // ==========================================
+    // 3. AJUSTES DEL SISTEMA (Precios y datos de QR)
     match /settings/{settingId} {
       allow read: if true;
       allow write: if isAdmin();
     }
 
-    // Default deny all other collections
+    // Denegar cualquier otra ruta no autorizada
     match /{document=**} {
-      allow read, write: if false;
+      allow read, write: if isAdmin();
     }
   }
 }
