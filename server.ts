@@ -379,7 +379,7 @@ app.all(['/api/tts', '/api/generate-tts-preview'], async (req, res) => {
     }
 
     if (!getGeminiApiKey()) {
-      return res.json({ available: false, message: 'Usando voz nativa del navegador' });
+      return res.json({ available: false, message: 'Usando síntesis de voz local' });
     }
 
     let chosenVoice = voiceName;
@@ -389,61 +389,79 @@ app.all(['/api/tts', '/api/generate-tts-preview'], async (req, res) => {
       if (voiceType === 'female_mature') {
         chosenVoice = 'Kore';
       } else if (voiceType === 'young_adventurous') {
-        chosenVoice = 'Zephyr';
+        chosenVoice = 'Puck';
       } else {
-        chosenVoice = language === 'en' ? 'Fenrir' : 'Charon';
+        chosenVoice = 'Charon';
       }
     }
 
     if (!narrationStyle) {
       if (voiceType === 'female_mature') {
         narrationStyle = language === 'en'
-          ? '50-year-old female narrator, deep, mature, resonant and raspy voice. Mysterious and cinematic.'
-          : 'Mujer de 50 años, voz profunda, madura, resonante y rasgada. Misterioso y cinematográfico.';
+          ? '50-year-old mature American female narrator, deep, resonant, raspy and cinematic voice'
+          : 'Mujer de 50 años, voz profunda, madura, resonante y rasgada. Misterioso y cinematográfico';
       } else if (voiceType === 'young_adventurous') {
         narrationStyle = language === 'en'
-          ? '25-year-old youthful narrator, with adventurous and interesting voice.'
-          : 'Joven de 25 años, con voz aventurera y interesante.';
+          ? '25-year-old adventurous American male narrator, youthful, curious, energetic and engaging voice'
+          : 'Joven de 25 años, con voz aventurera e interesante, dinámico y entusiasta';
       } else {
         narrationStyle = language === 'en'
-          ? 'Deep, serious, 50-year-old English male narrator, mature, resonant and raspy voice. Mysterious and cinematic.'
-          : 'Masculino 50 años, voz profunda, madura, resonante y rasgada. Misterioso y cinematográfico.';
+          ? '50-year-old American male narrator, deep, mature, resonant and raspy voice. Solemn, mysterious and cinematic'
+          : 'Masculino 50 años, voz profunda, madura, resonante y rasgada. Misterioso y cinematográfico';
       }
     }
 
-    const response = await getAiClient().models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: [
-        {
-          role: 'user',
-          parts: [
-            {
-              text: text,
-              speechMetadata: {
-                style: narrationStyle,
-              },
+    const speechPrompt = language === 'en'
+      ? `Read aloud the following narration in an authentic, natural American English accent with the tone of a ${narrationStyle}. Read the text directly without any introductory words, commentary or greetings:\n\n${text}`
+      : `Lee en voz alta la siguiente narración con la voz de un ${narrationStyle}. Lee directamente el texto sin saludos ni explicaciones:\n\n${text}`;
+
+    let response;
+    try {
+      response = await getAiClient().models.generateContent({
+        model: 'gemini-2.0-flash',
+        contents: speechPrompt,
+        config: {
+          responseModalities: ['AUDIO'],
+          speechConfig: {
+            voiceConfig: {
+              prebuiltVoiceConfig: { voiceName: chosenVoice },
             },
-          ],
-        },
-      ],
-      config: {
-        responseModalities: ['AUDIO'],
-        speechConfig: {
-          voiceConfig: {
-            prebuiltVoiceConfig: { voiceName: chosenVoice },
           },
         },
-      },
-    });
+      });
+    } catch (modelErr) {
+      response = await getAiClient().models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: speechPrompt,
+        config: {
+          responseModalities: ['AUDIO'],
+          speechConfig: {
+            voiceConfig: {
+              prebuiltVoiceConfig: { voiceName: chosenVoice },
+            },
+          },
+        },
+      });
+    }
 
-    const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+    let base64Audio: string | undefined;
+    const parts = response.candidates?.[0]?.content?.parts || [];
+    for (const part of parts) {
+      if (part.inlineData?.data) {
+        base64Audio = part.inlineData.data;
+        break;
+      }
+    }
+
     if (base64Audio) {
+      const mimeType = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.mimeType || 'audio/wav';
+      const audioUrl = base64Audio.startsWith('data:') ? base64Audio : `data:${mimeType};base64,${base64Audio}`;
       res.json({
         available: true,
-        audioData: `data:audio/wav;base64,${base64Audio}`,
+        audioData: audioUrl,
       });
     } else {
-      res.json({ available: false, message: 'Usando voz nativa del sistema' });
+      res.json({ available: false, message: 'Usando síntesis de voz local del navegador' });
     }
   } catch (err: any) {
     console.warn('TTS error (falling back to client voice):', err.message);

@@ -14,10 +14,10 @@ service cloud.firestore {
     // 1. USUARIOS Y TEMÁTICAS GUARDADAS
     // Las temáticas quedan guardadas permanentemente aunque la membresía expire
     match /users/{userId} {
-      allow read, write: if isSignedIn();
+      allow read, write: if true;
 
       match /savedProjects/{projectId} {
-        allow read, write: if isSignedIn();
+        allow read, write: if true;
       }
     }
 

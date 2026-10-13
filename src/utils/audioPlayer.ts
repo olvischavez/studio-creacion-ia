@@ -30,16 +30,16 @@ export const VOICE_PROFILES: Record<VoiceOptionId, VoiceProfile> = {
     shortLabel: 'Masculino 50 años (Profunda y madura)',
     geminiVoice: {
       es: 'Charon',
-      en: 'Fenrir',
+      en: 'Charon',
     },
     narrationStyle: {
       es: 'Masculino 50 años, voz profunda, madura, resonante y rasgada. Misterioso y cinematográfico.',
-      en: '50-year-old male narrator, deep, mature, resonant and raspy voice. Mysterious and cinematic BBC documentary tone.',
+      en: '50-year-old American male narrator, deep, mature, resonant and raspy voice. Solemn, mysterious and cinematic.',
     },
     browserFallback: {
       gender: 'male',
-      pitch: 0.78,
-      rate: 0.88,
+      pitch: 0.65,
+      rate: 0.84,
     },
   },
   female_mature: {
@@ -52,29 +52,29 @@ export const VOICE_PROFILES: Record<VoiceOptionId, VoiceProfile> = {
     },
     narrationStyle: {
       es: 'Mujer de 50 años, voz profunda, madura, resonante y rasgada. Misterioso y cinematográfico.',
-      en: '50-year-old female narrator, deep, mature, resonant and raspy voice. Mysterious and cinematic dark chronicles tone.',
+      en: '50-year-old mature American female narrator, deep, resonant, raspy and cinematic voice.',
     },
     browserFallback: {
       gender: 'female',
-      pitch: 0.85,
-      rate: 0.88,
+      pitch: 0.70,
+      rate: 0.84,
     },
   },
   young_adventurous: {
     id: 'young_adventurous',
-    label: 'Joven de 25 años, con voz aventurera y interesante.',
+    label: 'Joven de 25 años, con voz aventurera e interesante.',
     shortLabel: 'Joven 25 años (Aventurera e interesante)',
     geminiVoice: {
-      es: 'Zephyr',
-      en: 'Zephyr',
+      es: 'Puck',
+      en: 'Puck',
     },
     narrationStyle: {
-      es: 'Joven de 25 años, con voz aventurera y interesante.',
-      en: '25-year-old youthful narrator, adventurous and interesting voice, curious and engaging.',
+      es: 'Joven de 25 años, hombre aventurero, dinámico, curioso y entusiasta.',
+      en: '25-year-old energetic, adventurous American male narrator, youthful, curious and engaging voice.',
     },
     browserFallback: {
       gender: 'male',
-      pitch: 1.08,
+      pitch: 1.05,
       rate: 1.0,
     },
   },
@@ -158,21 +158,95 @@ function fallbackBrowserSpeech(
   utterance.rate = profile.browserFallback.rate;
   utterance.pitch = profile.browserFallback.pitch;
 
-  const voices = window.speechSynthesis.getVoices();
-  const isFemale = profile.browserFallback.gender === 'female';
+  const assignVoice = () => {
+    const voices = window.speechSynthesis.getVoices();
+    if (!voices || voices.length === 0) return;
 
-  const targetVoice = language === 'en'
-    ? (isFemale
-        ? voices.find((v) => v.lang.startsWith('en') && (v.name.includes('Female') || v.name.includes('Samantha') || v.name.includes('Victoria') || v.name.includes('Zira') || v.name.includes('Karen')))
-        : voices.find((v) => v.lang.startsWith('en') && (v.name.includes('Male') || v.name.includes('David') || v.name.includes('George') || v.name.includes('Daniel') || v.name.includes('Guy'))))
-      || voices.find((v) => v.lang.startsWith('en'))
-    : (isFemale
-        ? voices.find((v) => (v.lang === 'es-ES' || v.lang.startsWith('es')) && (v.name.includes('Female') || v.name.includes('Monica') || v.name.includes('Mónica') || v.name.includes('Helena') || v.name.includes('Paulina') || v.name.includes('Laura') || v.name.includes('Lucia') || v.name.includes('Mujer')))
-        : voices.find((v) => (v.lang === 'es-ES' || v.lang.startsWith('es')) && (v.name.includes('Male') || v.name.includes('Jorge') || v.name.includes('Pablo') || v.name.includes('Alonso') || v.name.includes('Diego') || v.name.includes('Castellano') || v.name.includes('Spain') || v.name.includes('Hombre'))))
-      || voices.find((v) => v.lang.startsWith('es'));
+    const isFemale = profile.browserFallback.gender === 'female';
 
-  if (targetVoice) {
-    utterance.voice = targetVoice;
+    let targetVoice: SpeechSynthesisVoice | undefined;
+
+    if (language === 'en') {
+      // Prioritize strict American English (en-US) voices
+      const usVoices = voices.filter(v => 
+        v.lang === 'en-US' || 
+        v.lang === 'en_US' || 
+        v.name.toLowerCase().includes('united states') || 
+        v.name.toLowerCase().includes('us')
+      );
+      const enPool = usVoices.length > 0 ? usVoices : voices.filter(v => v.lang.startsWith('en'));
+
+      if (isFemale) {
+        // 50-year-old mature female American voice
+        targetVoice = enPool.find(v => 
+          v.name.includes('Aria') || 
+          v.name.includes('Jenny') || 
+          v.name.includes('Zira') || 
+          v.name.includes('Samantha') || 
+          v.name.includes('Natural') ||
+          v.name.toLowerCase().includes('female')
+        ) || enPool[0];
+      } else {
+        if (voiceType === 'male_mature') {
+          // 50-year-old deep raspy male American voice
+          targetVoice = enPool.find(v => 
+            v.name.includes('David') || 
+            v.name.includes('Mark') || 
+            v.name.includes('Guy') || 
+            v.name.toLowerCase().includes('male') ||
+            v.name.includes('Google US English')
+          ) || enPool[0];
+        } else {
+          // 25-year-old adventurous young American male voice
+          targetVoice = enPool.find(v => 
+            v.name.includes('Guy') || 
+            v.name.includes('Natural') || 
+            v.name.includes('Mark') || 
+            v.name.includes('David') || 
+            v.name.includes('Google US English')
+          ) || enPool[0];
+        }
+      }
+    } else {
+      // Spanish voices (prioritize es-ES, es-MX, es-US)
+      const esVoices = voices.filter(v => v.lang.startsWith('es'));
+
+      if (isFemale) {
+        targetVoice = esVoices.find(v => 
+          v.name.includes('Helena') || 
+          v.name.includes('Monica') || 
+          v.name.includes('Mónica') || 
+          v.name.includes('Sabina') || 
+          v.name.includes('Laura') || 
+          v.name.includes('Paulina') || 
+          v.name.toLowerCase().includes('female') ||
+          v.name.toLowerCase().includes('mujer')
+        ) || esVoices[0];
+      } else {
+        targetVoice = esVoices.find(v => 
+          v.name.includes('Jorge') || 
+          v.name.includes('Pablo') || 
+          v.name.includes('Alonso') || 
+          v.name.includes('Diego') || 
+          v.name.includes('Castellano') || 
+          v.name.toLowerCase().includes('male') ||
+          v.name.toLowerCase().includes('hombre')
+        ) || esVoices[0];
+      }
+    }
+
+    if (targetVoice) {
+      utterance.voice = targetVoice;
+    }
+  };
+
+  assignVoice();
+
+  // If voices were not loaded yet, assign when ready
+  if (!utterance.voice && window.speechSynthesis.onvoiceschanged !== undefined) {
+    window.speechSynthesis.onvoiceschanged = () => {
+      assignVoice();
+    };
   }
 
   utterance.onend = () => onEnd?.();

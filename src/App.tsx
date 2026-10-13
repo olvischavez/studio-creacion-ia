@@ -50,33 +50,59 @@ function MainAppContent() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  // Saved items with localStorage and backend user database
-  const [savedItems, setSavedItems] = useState<SavedItem[]>(() => {
-    try {
-      const stored = localStorage.getItem('olvis_bolt_saved_items');
-      return stored ? JSON.parse(stored) : [];
-    } catch {
-      return [];
-    }
-  });
+  // User-scoped storage key helper
+  const getUserStorageKey = (email?: string) => {
+    if (!email) return 'olvis_bolt_saved_items_guest';
+    return `olvis_bolt_saved_items_${email.toLowerCase().replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+  };
 
-  // Load user saved projects from Firestore and database when user is logged in
+  // Saved items with user-scoped storage and Firestore
+  const [savedItems, setSavedItems] = useState<SavedItem[]>([]);
+
+  // Load user saved projects from Firestore and user-scoped storage when user logs in
   useEffect(() => {
-    if (!currentUser?.email) return;
-    const fetchUserSaved = async () => {
-      const cleanEmail = currentUser.email.toLowerCase();
-      const safeId = cleanEmail.replace(/[^a-zA-Z0-9_-]/g, '_');
+    if (!currentUser?.email) {
+      setSavedItems([]);
+      return;
+    }
 
-      // 1. Try Firestore
+    const cleanEmail = currentUser.email.toLowerCase();
+    const safeId = cleanEmail.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const storageKey = getUserStorageKey(cleanEmail);
+
+    // 1. Immediately load from user's local cache if available
+    try {
+      const stored = localStorage.getItem(storageKey);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setSavedItems(parsed);
+        }
+      }
+    } catch (e) {
+      console.warn('Local cache read notice:', e);
+    }
+
+    // 2. Fetch directly from Firestore for real-time cloud data
+    const fetchUserSaved = async () => {
       try {
         const querySnap = await getDocs(collection(db, 'users', safeId, 'savedProjects'));
         if (!querySnap.empty) {
           const firestoreItems: SavedItem[] = [];
           querySnap.forEach((d) => {
-            firestoreItems.push(d.data() as SavedItem);
+            const data = d.data() as SavedItem;
+            if (data && data.id && data.title) {
+              firestoreItems.push(data);
+            }
           });
+
           if (firestoreItems.length > 0) {
+            // Sort by latest saved
+            firestoreItems.sort((a, b) => (Number(b.id) || 0) - (Number(a.id) || 0));
             setSavedItems(firestoreItems);
+            try {
+              localStorage.setItem(storageKey, JSON.stringify(firestoreItems));
+            } catch {}
             return;
           }
         }
@@ -84,29 +110,36 @@ function MainAppContent() {
         console.warn('Firestore load saved notice:', firestoreErr);
       }
 
-      // 2. Fallback to server DB
+      // 3. Fallback to server DB if Firestore had no items yet
       try {
         const res = await fetch(`/api/user/saved-projects?email=${encodeURIComponent(cleanEmail)}`);
         if (res.ok) {
           const json = await res.json();
           if (Array.isArray(json.items) && json.items.length > 0) {
             setSavedItems(json.items);
+            try {
+              localStorage.setItem(storageKey, JSON.stringify(json.items));
+            } catch {}
           }
         }
       } catch (e) {
         console.warn('Could not sync user saved projects from DB:', e);
       }
     };
+
     fetchUserSaved();
   }, [currentUser?.email]);
 
+  // Synchronize state with user's local storage key
   useEffect(() => {
+    if (!currentUser?.email) return;
     try {
-      localStorage.setItem('olvis_bolt_saved_items', JSON.stringify(savedItems));
+      const storageKey = getUserStorageKey(currentUser.email);
+      localStorage.setItem(storageKey, JSON.stringify(savedItems));
     } catch (e) {
       console.warn('Could not save to localStorage:', e);
     }
-  }, [savedItems]);
+  }, [savedItems, currentUser?.email]);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -221,16 +254,26 @@ function MainAppContent() {
     if (currentUser?.email) {
       const cleanEmail = currentUser.email.toLowerCase();
       const safeId = cleanEmail.replace(/[^a-zA-Z0-9_-]/g, '_');
+      const storageKey = getUserStorageKey(cleanEmail);
 
-      // 1. Firestore Save
+      // Immediately cache in user-specific local storage
       try {
-        const projectDocRef = doc(db, 'users', safeId, 'savedProjects', itemToSave.id);
-        await setDoc(projectDocRef, {
+        localStorage.setItem(storageKey, JSON.stringify(updatedList));
+      } catch (e) {
+        console.warn('LocalStorage save notice:', e);
+      }
+
+      // 1. Firestore Save (Sanitized to eliminate undefined values which Firestore rejects)
+      try {
+        const sanitizedData = JSON.parse(JSON.stringify({
           ...itemToSave,
           userId: cleanEmail,
           userEmail: cleanEmail,
-          createdAt: new Date().toISOString()
-        }, { merge: true });
+          updatedAt: new Date().toISOString()
+        }));
+
+        const projectDocRef = doc(db, 'users', safeId, 'savedProjects', itemToSave.id);
+        await setDoc(projectDocRef, sanitizedData, { merge: true });
       } catch (firestoreErr) {
         console.warn('Firestore save project notice:', firestoreErr);
       }
@@ -295,6 +338,11 @@ function MainAppContent() {
   const handleClearAllSaved = () => {
     if (window.confirm('¿Seguro que deseas eliminar todos los proyectos guardados?')) {
       setSavedItems([]);
+      if (currentUser?.email) {
+        try {
+          localStorage.removeItem(getUserStorageKey(currentUser.email));
+        } catch {}
+      }
       showToast('Todos los guardados fueron eliminados');
     }
   };
