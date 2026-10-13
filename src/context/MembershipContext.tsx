@@ -51,67 +51,81 @@ export const MembershipProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     setLoginModalOpen(true);
   };
 
-  // Sync user profile from Firestore and server
+  // Sync user profile directly from Firestore and local database
   const fetchUserData = async (email: string, name?: string, photoURL?: string) => {
     const cleanEmail = email.trim().toLowerCase();
-    
-    // 1. Fetch from server API and establish user session immediately
-    let serverUser: UserProfile | null = null;
-    try {
-      const res = await fetch('/api/memberships/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: cleanEmail, name, photoURL }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        serverUser = data.user as UserProfile;
-        setCurrentUser(serverUser);
-        localStorage.setItem(LOCAL_STORAGE_EMAIL_KEY, cleanEmail);
-      }
-    } catch (err) {
-      console.warn('Server login sync warning:', err);
-    }
+    const isAdmin = cleanEmail === ADMIN_EMAIL.toLowerCase();
 
-    // 2. Fetch / Sync with Firebase Firestore (with 2.5s timeout so missing rules never block login)
+    // Base profile template for this user
+    let userProfile: UserProfile = {
+      email: cleanEmail,
+      name: name || cleanEmail.split('@')[0],
+      photoURL: photoURL || undefined,
+      plan: isAdmin ? 'admin' : 'free',
+      status: 'active',
+      expiresAt: null,
+      permissions: isAdmin ? {
+        allowedTabs: ['ai', 'saved', 'admin'],
+        canDownloadAudio: true,
+        canTranslateEnglish: true,
+        canExportScripts: true,
+      } : {
+        allowedTabs: [],
+        canDownloadAudio: false,
+        canTranslateEnglish: false,
+        canExportScripts: false,
+      },
+      createdAt: new Date().toISOString(),
+      lastLogin: new Date().toISOString(),
+    };
+
+    // 1. Fetch from / Sync with Firebase Firestore directly
     try {
       const docId = cleanEmail.replace(/[^a-zA-Z0-9_-]/g, '_');
       const userDocRef = doc(db, 'users', docId);
 
-      const firestoreSyncPromise = (async () => {
-        const userSnap = await getDoc(userDocRef);
-        if (userSnap.exists()) {
-          const firestoreData = userSnap.data() as UserProfile;
-          const mergedUser: UserProfile = {
-            ...firestoreData,
-            ...(serverUser || {}),
-            email: cleanEmail,
-            photoURL: photoURL || firestoreData.photoURL || serverUser?.photoURL || undefined,
+      const userSnap = await getDoc(userDocRef);
+      if (userSnap.exists()) {
+        const firestoreData = userSnap.data() as UserProfile;
+        userProfile = {
+          ...userProfile,
+          ...firestoreData,
+          email: cleanEmail,
+          photoURL: photoURL || firestoreData.photoURL || userProfile.photoURL,
+        };
+        // Guarantee master admin privileges for Olvis
+        if (isAdmin) {
+          userProfile.plan = 'admin';
+          userProfile.status = 'active';
+          userProfile.permissions = {
+            allowedTabs: ['ai', 'saved', 'admin'],
+            canDownloadAudio: true,
+            canTranslateEnglish: true,
+            canExportScripts: true,
           };
-          setCurrentUser(mergedUser);
-          localStorage.setItem(LOCAL_STORAGE_EMAIL_KEY, cleanEmail);
-        } else if (serverUser) {
-          const initialDoc: UserProfile = {
-            ...serverUser,
-            email: cleanEmail,
-            photoURL: photoURL || serverUser.photoURL || undefined,
-            updatedAt: new Date().toISOString()
-          } as any;
-          await setDoc(userDocRef, initialDoc, { merge: true });
         }
-      })();
-
-      const timeoutPromise = new Promise((resolve) => setTimeout(resolve, 2500));
-      await Promise.race([firestoreSyncPromise, timeoutPromise]);
+      } else {
+        // Register new user document into Firestore
+        await setDoc(userDocRef, userProfile, { merge: true });
+      }
     } catch (firestoreErr) {
-      console.warn('Firestore user sync notice (rules may need to be published):', firestoreErr);
+      console.warn('Firestore direct user sync notice:', firestoreErr);
     }
 
-    if (serverUser) {
-      return { success: true };
-    }
+    // 2. Set current user state & local storage immediately
+    setCurrentUser(userProfile);
+    localStorage.setItem(LOCAL_STORAGE_EMAIL_KEY, cleanEmail);
 
-    return { success: false, message: 'No se pudo conectar con la base de datos de usuarios' };
+    // 3. Background sync with backend API if running
+    try {
+      fetch('/api/memberships/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: cleanEmail, name, photoURL }),
+      }).catch(() => {});
+    } catch {}
+
+    return { success: true };
   };
 
   // Listen to Firebase Auth state
