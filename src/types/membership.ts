@@ -1,4 +1,4 @@
-export type MembershipPlan = 'free' | '1_month' | '3_months' | '1_year' | 'lifetime' | 'admin';
+export type MembershipPlan = 'free' | 'trial_3d' | '1_month' | '3_months' | '1_year' | 'lifetime' | 'admin';
 
 export type TabId = 'ai' | 'saved' | 'admin';
 

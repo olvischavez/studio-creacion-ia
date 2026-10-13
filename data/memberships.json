@@ -17,8 +17,23 @@
         "canExportScripts": true
       },
       "createdAt": "2026-10-03T18:10:52.345Z",
-      "lastLogin": "2026-10-13T15:51:06.294Z",
+      "lastLogin": "2026-10-13T17:51:19.267Z",
       "photoURL": "https://lh3.googleusercontent.com/a/ACg8ocLbYzvkyUfJGoKRdjRjXVYauuvdNjXrZ0N8w8Q2HeZdEX7QuNnyJA=s96-c"
+    },
+    "testuser@gmail.com": {
+      "email": "testuser@gmail.com",
+      "name": "Test User",
+      "plan": "free",
+      "status": "active",
+      "expiresAt": null,
+      "permissions": {
+        "allowedTabs": [],
+        "canDownloadAudio": false,
+        "canTranslateEnglish": false,
+        "canExportScripts": false
+      },
+      "createdAt": "2026-10-13T17:51:29.000Z",
+      "lastLogin": "2026-10-13T17:51:29.000Z"
     }
   },
   "tierConfig": {

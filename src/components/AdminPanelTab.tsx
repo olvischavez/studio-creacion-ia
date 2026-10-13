@@ -42,7 +42,7 @@ import {
   DEFAULT_TIER_CONFIG,
   DEFAULT_QR_SETTINGS
 } from '../types/membership';
-import { db, collection, onSnapshot, doc, setDoc } from '../lib/firebase';
+import { db, collection, onSnapshot, doc, setDoc, deleteDoc } from '../lib/firebase';
 
 export const AdminPanelTab: React.FC = () => {
   const { currentUser, setQrPaymentModalOpen } = useMembership();
@@ -374,79 +374,168 @@ export const AdminPanelTab: React.FC = () => {
     }
   };
 
-  // Approve User Payment Notification (with option for duration)
-  const handleApprovePayment = async (notifId: string, overridePlan?: MembershipPlan, overrideDays?: number) => {
+  // Mark payment notice as received / verified (no plans activated here)
+  const handleMarkPaymentReceived = async (notifId: string) => {
     if (!isStrictMasterAdmin || !currentAdminEmail) return;
     try {
       // 1. Update in Firestore
-      try {
-        await setDoc(doc(db, 'paymentNotices', notifId), {
-          status: 'approved',
-          reviewedAt: new Date().toISOString()
-        }, { merge: true });
-      } catch (e) {
-        console.warn('Firestore approve notice:', e);
-      }
+      await setDoc(doc(db, 'paymentNotices', notifId), {
+        status: 'approved',
+        reviewedAt: new Date().toISOString()
+      }, { merge: true });
 
-      // 2. Server API Call
-      const res = await fetch(`/api/payments/admin/approve/${notifId}`, {
+      // 2. Server API sync
+      fetch(`/api/payments/admin/approve-notice-only/${notifId}`, {
         method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'x-admin-email': currentAdminEmail 
-        },
-        body: JSON.stringify({
-          plan: overridePlan,
-          durationDays: overrideDays
-        })
-      });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        showNotification(`✓ ${data.message}`);
-        // If user returned, sync user to Firestore
-        if (data.user?.email) {
-          try {
-            const docId = data.user.email.toLowerCase().replace(/[^a-zA-Z0-9_-]/g, '_');
-            await setDoc(doc(db, 'users', docId), data.user, { merge: true });
-          } catch (e) {
-            console.warn('Firestore user update notice:', e);
-          }
-        }
-        fetchAdminData();
-      } else {
-        showNotification(data.message || 'Error al aprobar pago');
-      }
+        headers: { 'x-admin-email': currentAdminEmail }
+      }).catch(() => {});
+
+      setPendingPayments(prev => prev.map(p => p.id === notifId ? { ...p, status: 'approved', reviewedAt: new Date().toISOString() } : p));
+      showNotification('✓ Comprobante marcado como recibido exitosamente.');
     } catch (err) {
-      showNotification('Error de conexión al aprobar pago');
+      showNotification('Error al marcar comprobante');
     }
   };
 
-  // Reject User Payment Notification
-  const handleRejectPayment = async (notifId: string) => {
+  // Delete payment notice completely
+  const handleDeletePaymentNotice = async (notifId: string) => {
     if (!isStrictMasterAdmin || !currentAdminEmail) return;
-    if (!window.confirm('¿Deseas marcar este aviso como rechazado?')) return;
+    if (!window.confirm('¿Seguro de eliminar este aviso de pago?')) return;
     try {
-      // 1. Update in Firestore
-      try {
-        await setDoc(doc(db, 'paymentNotices', notifId), {
-          status: 'rejected',
-          reviewedAt: new Date().toISOString()
-        }, { merge: true });
-      } catch (e) {
-        console.warn('Firestore reject notice:', e);
-      }
+      // 1. Delete from Firestore
+      await deleteDoc(doc(db, 'paymentNotices', notifId));
 
-      // 2. Server call
-      const res = await fetch(`/api/payments/admin/reject/${notifId}`, {
-        method: 'POST',
-        headers: { 'x-admin-email': currentAdminEmail },
-      });
-      if (res.ok) {
-        showNotification('Aviso de pago marcado como rechazado');
-        setPendingPayments(prev => prev.map(p => p.id === notifId ? { ...p, status: 'rejected' } : p));
-      }
+      // 2. Server API sync
+      fetch(`/api/payments/admin/notice/${notifId}`, {
+        method: 'DELETE',
+        headers: { 'x-admin-email': currentAdminEmail }
+      }).catch(() => {});
+
+      setPendingPayments(prev => prev.filter(p => p.id !== notifId));
+      showNotification('Aviso de pago eliminado.');
     } catch (err) {
-      showNotification('Error al rechazar pago');
+      showNotification('Error al eliminar aviso de pago');
+    }
+  };
+
+  // Centralized Plan Activator for "Modificar" Menu
+  const handleActivatePlanType = async (
+    targetUser: UserProfile, 
+    planAction: 'renew_30' | 'renew_90' | 'renew_365' | 'new_30' | 'new_90' | 'new_365' | 'trial_3' | 'permanent' | 'block'
+  ) => {
+    if (!isStrictMasterAdmin || !currentAdminEmail) return;
+    setIsSavingEdit(true);
+
+    const now = new Date();
+    let newExpiresAt: string | null = null;
+    let newPlan: MembershipPlan = '1_month';
+    let newStatus: 'active' | 'expired' = 'active';
+    let planLabel = '';
+
+    const currentExp = targetUser.expiresAt ? new Date(targetUser.expiresAt) : null;
+    const isCurrentlyActive = currentExp && currentExp.getTime() > now.getTime();
+
+    switch (planAction) {
+      case 'renew_30': {
+        const base = isCurrentlyActive ? currentExp : now;
+        newExpiresAt = new Date(base.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString();
+        newPlan = '1_month';
+        planLabel = 'Plan 30 días (renovar)';
+        break;
+      }
+      case 'renew_90': {
+        const base = isCurrentlyActive ? currentExp : now;
+        newExpiresAt = new Date(base.getTime() + 90 * 24 * 60 * 60 * 1000).toISOString();
+        newPlan = '3_months';
+        planLabel = 'Plan 90 días (renovar)';
+        break;
+      }
+      case 'renew_365': {
+        const base = isCurrentlyActive ? currentExp : now;
+        newExpiresAt = new Date(base.getTime() + 365 * 24 * 60 * 60 * 1000).toISOString();
+        newPlan = '1_year';
+        planLabel = 'Plan 365 días (renovar)';
+        break;
+      }
+      case 'new_30': {
+        newExpiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString();
+        newPlan = '1_month';
+        planLabel = 'Plan 30 días (nuevo)';
+        break;
+      }
+      case 'new_90': {
+        newExpiresAt = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000).toISOString();
+        newPlan = '3_months';
+        planLabel = 'Plan 90 días (nuevo)';
+        break;
+      }
+      case 'new_365': {
+        newExpiresAt = new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000).toISOString();
+        newPlan = '1_year';
+        planLabel = 'Plan 365 días (nuevo)';
+        break;
+      }
+      case 'trial_3': {
+        newExpiresAt = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000).toISOString();
+        newPlan = 'trial_3d';
+        planLabel = 'Plan Prueba 3 días';
+        break;
+      }
+      case 'permanent': {
+        newExpiresAt = null;
+        newPlan = 'lifetime';
+        planLabel = 'Plan Permanente';
+        break;
+      }
+      case 'block': {
+        newExpiresAt = new Date(now.getTime() - 1000).toISOString();
+        newPlan = 'free';
+        newStatus = 'expired';
+        planLabel = 'Plan Bloqueado / Vencido';
+        break;
+      }
+    }
+
+    const updatedUser: UserProfile = {
+      ...targetUser,
+      plan: newPlan,
+      status: newStatus,
+      expiresAt: newExpiresAt,
+      permissions: newStatus === 'active' 
+        ? { ...tierConfig.paidPermissions }
+        : { ...tierConfig.freePermissions },
+    };
+
+    try {
+      // 1. Direct Firestore update
+      const safeId = targetUser.email.toLowerCase().replace(/[^a-zA-Z0-9_-]/g, '_');
+      await setDoc(doc(db, 'users', safeId), updatedUser, { merge: true });
+
+      // 2. Server API update
+      fetch('/api/memberships/admin/update-user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-admin-email': currentAdminEmail },
+        body: JSON.stringify({
+          adminEmail: currentAdminEmail,
+          targetEmail: targetUser.email,
+          updates: {
+            plan: newPlan,
+            status: newStatus,
+            expiresAt: newExpiresAt,
+            permissions: updatedUser.permissions,
+          },
+        }),
+      }).catch(() => {});
+
+      // 3. Local state update
+      setUsers(prev => prev.map(u => u.email.toLowerCase() === targetUser.email.toLowerCase() ? updatedUser : u));
+      setEditingUser(null);
+      showNotification(`✓ ${planLabel} activado con éxito para ${targetUser.email}`);
+    } catch (e) {
+      console.warn('Error activating plan:', e);
+      showNotification('Error al activar plan');
+    } finally {
+      setIsSavingEdit(false);
     }
   };
 
@@ -872,59 +961,46 @@ export const AdminPanelTab: React.FC = () => {
                         </div>
                       </div>
 
-                      {/* Right: Actions with 1-click duration buttons */}
+                      {/* Right: Actions - Solo marcar recibido y eliminar (sin activar planes aqui) */}
                       <div className="flex items-center gap-2 self-end md:self-auto flex-wrap">
                         {isPending ? (
                           <>
-                            {/* Fast duration activation buttons */}
                             <button
                               type="button"
-                              onClick={() => handleApprovePayment(notif.id, '1_month', 30)}
-                              className="px-3 py-1.5 rounded-xl bg-cyan-700 hover:bg-cyan-600 text-white font-bold text-xs flex items-center gap-1 shadow-md shadow-cyan-950/50 transition-all cursor-pointer"
-                              title="Activar por 1 Mes (30 días)"
+                              onClick={() => handleMarkPaymentReceived(notif.id)}
+                              className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-md shadow-emerald-950/50 transition-all cursor-pointer"
+                              title="Confirmar que recibiste el pago en tu banco"
                             >
-                              <CheckCircle2 className="w-3.5 h-3.5" />
-                              <span>Activar 1 Mes (30d)</span>
+                              <CheckCircle2 className="w-4 h-4" />
+                              <span>Comprobante Recibido</span>
                             </button>
 
                             <button
                               type="button"
-                              onClick={() => handleApprovePayment(notif.id, '3_months', 90)}
-                              className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs flex items-center gap-1 shadow-md shadow-amber-950/50 transition-all cursor-pointer"
-                              title="Activar por 3 Meses (90 días)"
+                              onClick={() => handleDeletePaymentNotice(notif.id)}
+                              className="px-3 py-2 rounded-xl bg-zinc-800 hover:bg-red-950 text-zinc-400 hover:text-red-300 border border-zinc-700 font-semibold text-xs flex items-center gap-1 transition-all cursor-pointer"
+                              title="Eliminar este aviso de pago"
                             >
-                              <CheckCircle2 className="w-3.5 h-3.5" />
-                              <span>Activar 3 Meses (90d)</span>
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => handleApprovePayment(notif.id, '1_year', 365)}
-                              className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1 shadow-md shadow-emerald-950/50 transition-all cursor-pointer"
-                              title="Activar por 1 Año (365 días)"
-                            >
-                              <CheckCircle2 className="w-3.5 h-3.5" />
-                              <span>Activar 1 Año (365d)</span>
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => handleRejectPayment(notif.id)}
-                              className="px-2.5 py-1.5 rounded-xl bg-zinc-800 hover:bg-red-950/80 text-zinc-400 hover:text-red-300 border border-zinc-700 font-semibold text-xs transition-all cursor-pointer"
-                              title="Rechazar aviso"
-                            >
-                              <XCircle className="w-4 h-4" />
+                              <Trash2 className="w-3.5 h-3.5" />
+                              <span>Eliminar</span>
                             </button>
                           </>
-                        ) : isApproved ? (
-                          <div className="flex items-center gap-1 text-emerald-400 text-xs font-bold px-3 py-1.5 rounded-xl bg-emerald-950/60 border border-emerald-500/30">
-                            <CheckCircle2 className="w-4 h-4" />
-                            <span>Membresía Activada</span>
-                          </div>
                         ) : (
-                          <span className="text-red-400 text-xs font-bold px-3 py-1 rounded-xl bg-red-950/40">
-                            Rechazado
-                          </span>
+                          <>
+                            <div className="flex items-center gap-1.5 text-emerald-400 text-xs font-bold px-3 py-1.5 rounded-xl bg-emerald-950/60 border border-emerald-500/30">
+                              <CheckCircle2 className="w-4 h-4" />
+                              <span>Comprobante Recibido</span>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => handleDeletePaymentNotice(notif.id)}
+                              className="px-2.5 py-1.5 rounded-xl bg-zinc-800 hover:bg-red-950 text-zinc-400 hover:text-red-300 border border-zinc-700 font-semibold text-xs flex items-center gap-1 transition-all cursor-pointer"
+                              title="Eliminar aviso"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </>
                         )}
                       </div>
                     </div>
@@ -972,14 +1048,13 @@ export const AdminPanelTab: React.FC = () => {
                   <th className="py-3 px-3">Plan Actual</th>
                   <th className="py-3 px-3">Estado & Días Restantes</th>
                   <th className="py-3 px-3">Acceso al Sistema</th>
-                  <th className="py-3 px-3">Activar / Extender Días</th>
                   <th className="py-3 px-3 text-right">Acciones</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-800/60">
                 {filteredUsers.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="py-8 text-center text-zinc-500">
+                    <td colSpan={5} className="py-8 text-center text-zinc-500">
                       No se encontraron usuarios registrados con ese criterio.
                     </td>
                   </tr>
@@ -1085,39 +1160,7 @@ export const AdminPanelTab: React.FC = () => {
                           )}
                         </td>
 
-                        {/* 5. Fast Activation / Extension Buttons */}
-                        <td className="py-3.5 px-3">
-                          {!isOwner && (
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              <button
-                                type="button"
-                                onClick={() => handleExtendUserDays(u, 30)}
-                                className="px-2.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-cyan-950 text-cyan-300 hover:border-cyan-500 border border-zinc-700 text-[11px] font-bold transition-all cursor-pointer"
-                                title="Activar o sumar 30 días (1 Mes)"
-                              >
-                                +30d (1 Mes)
-                              </button>
 
-                              <button
-                                type="button"
-                                onClick={() => handleExtendUserDays(u, 90)}
-                                className="px-2.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-amber-950 text-amber-300 hover:border-amber-500 border border-zinc-700 text-[11px] font-bold transition-all cursor-pointer"
-                                title="Activar o sumar 90 días (3 Meses)"
-                              >
-                                +90d (3 Meses)
-                              </button>
-
-                              <button
-                                type="button"
-                                onClick={() => handleExtendUserDays(u, 365)}
-                                className="px-2.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-emerald-950 text-emerald-300 hover:border-emerald-500 border border-zinc-700 text-[11px] font-bold transition-all cursor-pointer"
-                                title="Activar o sumar 365 días (1 Año)"
-                              >
-                                +365d (1 Año)
-                              </button>
-                            </div>
-                          )}
-                        </td>
 
                         {/* 6. Actions: Manual Edit, Revoke Plan, Delete */}
                         <td className="py-3.5 px-3 text-right">
@@ -1739,19 +1782,23 @@ export const AdminPanelTab: React.FC = () => {
       )}
 
       {/* ========================================================================= */}
-      {/* MODAL: MANUAL USER EDITING (In case of error or manual adjustment) */}
+      {/* MODAL: ACTIVAR / MODIFICAR PLAN DE USUARIO CON BOTONES DIRECTOS */}
       {/* ========================================================================= */}
       {editingUser && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-fade-in overflow-y-auto">
-          <div className="relative w-full max-w-lg bg-zinc-900 border border-zinc-800 rounded-3xl p-6 sm:p-7 shadow-2xl space-y-5 my-auto">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md animate-fade-in overflow-y-auto">
+          <div className="relative w-full max-w-xl bg-zinc-900 border border-zinc-800 rounded-3xl p-5 sm:p-7 shadow-2xl space-y-5 my-auto max-h-[92vh] overflow-y-auto">
             
+            {/* Header */}
             <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
               <div>
-                <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                  <Edit3 className="w-5 h-5 text-amber-400" />
-                  <span>Modificación Manual de Usuario</span>
+                <h3 className="text-base sm:text-lg font-bold text-white flex items-center gap-2">
+                  <Crown className="w-5 h-5 text-amber-400" />
+                  <span>Activar o Modificar Plan de Membresía</span>
                 </h3>
-                <span className="text-xs text-zinc-400 font-mono">{editingUser.email}</span>
+                <div className="flex items-center gap-2 mt-1">
+                  <span className="text-xs text-white font-mono font-bold">{editingUser.email}</span>
+                  {editingUser.name && <span className="text-xs text-zinc-400">({editingUser.name})</span>}
+                </div>
               </div>
 
               <button
@@ -1763,110 +1810,157 @@ export const AdminPanelTab: React.FC = () => {
               </button>
             </div>
 
-            <form onSubmit={handleSaveManualUserEdit} className="space-y-4 text-xs">
-              
-              {/* Plan selection */}
-              <div className="space-y-1">
-                <label className="text-zinc-300 font-bold">Tipo de Plan:</label>
-                <select
-                  value={editPlan}
-                  onChange={(e) => setEditPlan(e.target.value as MembershipPlan)}
-                  className="w-full bg-zinc-950 border border-zinc-700 rounded-xl px-3 py-2 text-white font-medium focus:border-amber-500 outline-none"
-                >
-                  <option value="1_month">Plan 1 Mes (30 días)</option>
-                  <option value="3_months">Plan 3 Meses (90 días)</option>
-                  <option value="1_year">Plan 1 Año (365 días)</option>
-                  <option value="free">Plan Gratis (Sin acceso a creación)</option>
-                  <option value="lifetime">Permanente / Vitalicio</option>
-                </select>
+            {/* Current status info pill */}
+            <div className="bg-zinc-950 p-3.5 rounded-2xl border border-zinc-800 flex items-center justify-between text-xs">
+              <div>
+                <span className="text-zinc-400 block text-[11px]">Plan y Estado Actual:</span>
+                <span className="font-bold text-white">
+                  {editingUser.plan === 'admin' ? '👑 Propietario' :
+                   editingUser.plan === 'lifetime' ? '♾️ Permanente / Vitalicio' :
+                   editingUser.plan === 'trial_3d' ? '⚡ Prueba 3 Días' :
+                   editingUser.plan === '1_month' ? '🎟️ 1 Mes (30 días)' :
+                   editingUser.plan === '3_months' ? '⚡ 3 Meses (90 días)' :
+                   editingUser.plan === '1_year' ? '⭐ 1 Año (365 días)' :
+                   'Sin Plan Activo'}
+                </span>
               </div>
-
-              {/* Status selection */}
-              <div className="space-y-1">
-                <label className="text-zinc-300 font-bold">Estado:</label>
-                <select
-                  value={editStatus}
-                  onChange={(e) => setEditStatus(e.target.value as 'active' | 'expired' | 'suspended')}
-                  className="w-full bg-zinc-950 border border-zinc-700 rounded-xl px-3 py-2 text-white font-medium focus:border-amber-500 outline-none"
-                >
-                  <option value="active">Activo (Habilitado)</option>
-                  <option value="expired">Vencido (Bloqueado)</option>
-                  <option value="suspended">Suspendido</option>
-                </select>
+              <div className="text-right">
+                <span className="text-zinc-400 block text-[11px]">Vencimiento:</span>
+                <span className="font-mono font-bold text-amber-400">
+                  {editingUser.expiresAt ? new Date(editingUser.expiresAt).toLocaleDateString('es-ES') : 'Sin fecha / Permanente'}
+                </span>
               </div>
+            </div>
 
-              {/* Exact days setter */}
-              <div className="space-y-1">
-                <label className="text-zinc-300 font-bold">
-                  Días restantes exactos (Opcional - escribe cuántos días le quedan):
-                </label>
-                <input
-                  type="number"
-                  placeholder="Ej: 15, 30, 45, 90"
-                  value={editExactDays}
-                  onChange={(e) => setEditExactDays(e.target.value)}
-                  className="w-full bg-zinc-950 border border-zinc-700 rounded-xl px-3 py-2 text-white font-mono focus:border-amber-500 outline-none"
-                />
+            {/* GRUPO 1: PLANES RENOVAR */}
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 text-xs font-bold text-cyan-400">
+                <RefreshCw className="w-4 h-4" />
+                <span>PLANES PARA RENOVAR (Respeta su plan anterior y le suma los días al final):</span>
               </div>
-
-              {/* Date picker */}
-              <div className="space-y-1">
-                <label className="text-zinc-300 font-bold">
-                  O fijar fecha exacta de vencimiento:
-                </label>
-                <input
-                  type="date"
-                  value={editCustomDate}
-                  onChange={(e) => setEditCustomDate(e.target.value)}
-                  className="w-full bg-zinc-950 border border-zinc-700 rounded-xl px-3 py-2 text-white font-mono focus:border-amber-500 outline-none"
-                />
-              </div>
-
-              {/* Notice */}
-              <div className="p-3 rounded-xl bg-zinc-950 border border-zinc-800 text-[11px] text-zinc-400 space-y-1">
-                <div className="flex items-center gap-1.5 text-amber-300 font-bold">
-                  <Flame className="w-3.5 h-3.5" />
-                  <span>Protección de Base de Datos</span>
-                </div>
-                <p>
-                  Cualquier ajuste de días o retiro del plan mantiene intactas todas las temáticas y proyectos guardados del usuario en su cuenta de Gmail.
-                </p>
-              </div>
-
-              {/* Action buttons */}
-              <div className="pt-2 flex items-center justify-between gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                 <button
                   type="button"
-                  onClick={() => {
-                    handleRevokeUserPlan(editingUser);
-                    setEditingUser(null);
-                  }}
-                  className="px-4 py-2.5 rounded-xl bg-red-950/80 hover:bg-red-900 text-red-300 border border-red-800 font-bold text-xs transition-colors cursor-pointer"
+                  disabled={isSavingEdit}
+                  onClick={() => handleActivatePlanType(editingUser, 'renew_30')}
+                  className="p-3 rounded-xl bg-cyan-950/60 hover:bg-cyan-900 border border-cyan-700/60 text-cyan-200 text-xs font-bold text-left transition-all hover:scale-[1.02] cursor-pointer disabled:opacity-50"
                 >
-                  Quitar Plan (Poner en Gratis)
+                  <div className="font-extrabold text-sm text-cyan-300">Plan 30 dias (renovar)</div>
+                  <div className="text-[10px] text-cyan-400/80 font-normal mt-0.5">Suma +30d al vencimiento actual</div>
                 </button>
 
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setEditingUser(null)}
-                    className="px-4 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-bold text-xs transition-colors cursor-pointer"
-                  >
-                    Cancelar
-                  </button>
+                <button
+                  type="button"
+                  disabled={isSavingEdit}
+                  onClick={() => handleActivatePlanType(editingUser, 'renew_90')}
+                  className="p-3 rounded-xl bg-cyan-950/60 hover:bg-cyan-900 border border-cyan-700/60 text-cyan-200 text-xs font-bold text-left transition-all hover:scale-[1.02] cursor-pointer disabled:opacity-50"
+                >
+                  <div className="font-extrabold text-sm text-cyan-300">Plan 90 dias (renovar)</div>
+                  <div className="text-[10px] text-cyan-400/80 font-normal mt-0.5">Suma +90d al vencimiento actual</div>
+                </button>
 
-                  <button
-                    type="submit"
-                    disabled={isSavingEdit}
-                    className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-lg transition-all disabled:opacity-50 cursor-pointer"
-                  >
-                    {isSavingEdit ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-                    <span>Guardar Cambios</span>
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  disabled={isSavingEdit}
+                  onClick={() => handleActivatePlanType(editingUser, 'renew_365')}
+                  className="p-3 rounded-xl bg-cyan-950/60 hover:bg-cyan-900 border border-cyan-700/60 text-cyan-200 text-xs font-bold text-left transition-all hover:scale-[1.02] cursor-pointer disabled:opacity-50"
+                >
+                  <div className="font-extrabold text-sm text-cyan-300">Plan 365 dias (renovar)</div>
+                  <div className="text-[10px] text-cyan-400/80 font-normal mt-0.5">Suma +365d al vencimiento actual</div>
+                </button>
               </div>
+            </div>
 
-            </form>
+            {/* GRUPO 2: PLANES NUEVOS */}
+            <div className="space-y-2 pt-1">
+              <div className="flex items-center gap-2 text-xs font-bold text-emerald-400">
+                <Sparkles className="w-4 h-4" />
+                <span>PLANES NUEVOS (Comienza desde hoy mismo, para los que dejaron vencer su plan):</span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <button
+                  type="button"
+                  disabled={isSavingEdit}
+                  onClick={() => handleActivatePlanType(editingUser, 'new_30')}
+                  className="p-3 rounded-xl bg-emerald-950/60 hover:bg-emerald-900 border border-emerald-700/60 text-emerald-200 text-xs font-bold text-left transition-all hover:scale-[1.02] cursor-pointer disabled:opacity-50"
+                >
+                  <div className="font-extrabold text-sm text-emerald-300">Plan 30 dias (nuevo)</div>
+                  <div className="text-[10px] text-emerald-400/80 font-normal mt-0.5">Activa 30 días desde hoy</div>
+                </button>
+
+                <button
+                  type="button"
+                  disabled={isSavingEdit}
+                  onClick={() => handleActivatePlanType(editingUser, 'new_90')}
+                  className="p-3 rounded-xl bg-emerald-950/60 hover:bg-emerald-900 border border-emerald-700/60 text-emerald-200 text-xs font-bold text-left transition-all hover:scale-[1.02] cursor-pointer disabled:opacity-50"
+                >
+                  <div className="font-extrabold text-sm text-emerald-300">Plan 90 dias (nuevo)</div>
+                  <div className="text-[10px] text-emerald-400/80 font-normal mt-0.5">Activa 90 días desde hoy</div>
+                </button>
+
+                <button
+                  type="button"
+                  disabled={isSavingEdit}
+                  onClick={() => handleActivatePlanType(editingUser, 'new_365')}
+                  className="p-3 rounded-xl bg-emerald-950/60 hover:bg-emerald-900 border border-emerald-700/60 text-emerald-200 text-xs font-bold text-left transition-all hover:scale-[1.02] cursor-pointer disabled:opacity-50"
+                >
+                  <div className="font-extrabold text-sm text-emerald-300">Plan 365 dias (nuevo)</div>
+                  <div className="text-[10px] text-emerald-400/80 font-normal mt-0.5">Activa 365 días desde hoy</div>
+                </button>
+              </div>
+            </div>
+
+            {/* GRUPO 3: PLANES ESPECIALES */}
+            <div className="space-y-2 pt-1">
+              <div className="flex items-center gap-2 text-xs font-bold text-amber-400">
+                <Crown className="w-4 h-4" />
+                <span>PLANES ESPECIALES:</span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  disabled={isSavingEdit}
+                  onClick={() => handleActivatePlanType(editingUser, 'trial_3')}
+                  className="p-3 rounded-xl bg-purple-950/60 hover:bg-purple-900 border border-purple-700/60 text-purple-200 text-xs font-bold text-left transition-all hover:scale-[1.02] cursor-pointer disabled:opacity-50"
+                >
+                  <div className="font-extrabold text-sm text-purple-300">Plan Prueba 3 días</div>
+                  <div className="text-[10px] text-purple-400/80 font-normal mt-0.5">3 días de acceso y luego se bloquea</div>
+                </button>
+
+                <button
+                  type="button"
+                  disabled={isSavingEdit}
+                  onClick={() => handleActivatePlanType(editingUser, 'permanent')}
+                  className="p-3 rounded-xl bg-amber-950/60 hover:bg-amber-900 border border-amber-700/60 text-amber-200 text-xs font-bold text-left transition-all hover:scale-[1.02] cursor-pointer disabled:opacity-50"
+                >
+                  <div className="font-extrabold text-sm text-amber-300">Plan Permanente</div>
+                  <div className="text-[10px] text-amber-400/80 font-normal mt-0.5">Acceso vitalicio para toda la vida</div>
+                </button>
+              </div>
+            </div>
+
+            {/* GRUPO 4: BLOQUEAR / QUITAR PLAN */}
+            <div className="pt-2 border-t border-zinc-800 flex items-center justify-between gap-3">
+              <button
+                type="button"
+                disabled={isSavingEdit}
+                onClick={() => handleActivatePlanType(editingUser, 'block')}
+                className="px-4 py-2.5 rounded-xl bg-red-950 hover:bg-red-900 text-red-300 border border-red-800 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                title="Bloquear acceso y dejar en pantalla inicial de plan requerido"
+              >
+                <UserX className="w-4 h-4" />
+                <span>Bloquear / Dejar Vencido</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setEditingUser(null)}
+                className="px-4 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-bold transition-colors cursor-pointer"
+              >
+                Cerrar
+              </button>
+            </div>
+
           </div>
         </div>
       )}
