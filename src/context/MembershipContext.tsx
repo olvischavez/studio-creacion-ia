@@ -55,7 +55,7 @@ export const MembershipProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const fetchUserData = async (email: string, name?: string, photoURL?: string) => {
     const cleanEmail = email.trim().toLowerCase();
     
-    // 1. Fetch from server API
+    // 1. Fetch from server API and establish user session immediately
     let serverUser: UserProfile | null = null;
     try {
       const res = await fetch('/api/memberships/login', {
@@ -66,52 +66,49 @@ export const MembershipProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       if (res.ok) {
         const data = await res.json();
         serverUser = data.user as UserProfile;
+        setCurrentUser(serverUser);
+        localStorage.setItem(LOCAL_STORAGE_EMAIL_KEY, cleanEmail);
       }
     } catch (err) {
       console.warn('Server login sync warning:', err);
     }
 
-    // 2. Fetch / Sync with Firebase Firestore
+    // 2. Fetch / Sync with Firebase Firestore (with 2.5s timeout so missing rules never block login)
     try {
       const docId = cleanEmail.replace(/[^a-zA-Z0-9_-]/g, '_');
       const userDocRef = doc(db, 'users', docId);
-      const userSnap = await getDoc(userDocRef);
 
-      if (userSnap.exists()) {
-        const firestoreData = userSnap.data() as UserProfile;
-        const mergedUser: UserProfile = {
-          ...firestoreData,
-          ...(serverUser || {}),
-          email: cleanEmail,
-          photoURL: photoURL || firestoreData.photoURL || serverUser?.photoURL || undefined,
-        };
-        setCurrentUser(mergedUser);
-        localStorage.setItem(LOCAL_STORAGE_EMAIL_KEY, cleanEmail);
-        return { success: true };
-      } else if (serverUser) {
-        // Seed initial document in Firestore
-        const initialDoc: UserProfile = {
-          ...serverUser,
-          email: cleanEmail,
-          photoURL: photoURL || serverUser.photoURL || undefined,
-          updatedAt: new Date().toISOString()
-        } as any;
-        await setDoc(userDocRef, initialDoc, { merge: true });
-        setCurrentUser(initialDoc);
-        localStorage.setItem(LOCAL_STORAGE_EMAIL_KEY, cleanEmail);
-        return { success: true };
-      }
+      const firestoreSyncPromise = (async () => {
+        const userSnap = await getDoc(userDocRef);
+        if (userSnap.exists()) {
+          const firestoreData = userSnap.data() as UserProfile;
+          const mergedUser: UserProfile = {
+            ...firestoreData,
+            ...(serverUser || {}),
+            email: cleanEmail,
+            photoURL: photoURL || firestoreData.photoURL || serverUser?.photoURL || undefined,
+          };
+          setCurrentUser(mergedUser);
+          localStorage.setItem(LOCAL_STORAGE_EMAIL_KEY, cleanEmail);
+        } else if (serverUser) {
+          const initialDoc: UserProfile = {
+            ...serverUser,
+            email: cleanEmail,
+            photoURL: photoURL || serverUser.photoURL || undefined,
+            updatedAt: new Date().toISOString()
+          } as any;
+          await setDoc(userDocRef, initialDoc, { merge: true });
+        }
+      })();
+
+      const timeoutPromise = new Promise((resolve) => setTimeout(resolve, 2500));
+      await Promise.race([firestoreSyncPromise, timeoutPromise]);
     } catch (firestoreErr) {
-      console.warn('Firestore user sync notice:', firestoreErr);
-      if (serverUser) {
-        const fallbackUser: UserProfile = {
-          ...serverUser,
-          photoURL: photoURL || serverUser.photoURL
-        };
-        setCurrentUser(fallbackUser);
-        localStorage.setItem(LOCAL_STORAGE_EMAIL_KEY, cleanEmail);
-        return { success: true };
-      }
+      console.warn('Firestore user sync notice (rules may need to be published):', firestoreErr);
+    }
+
+    if (serverUser) {
+      return { success: true };
     }
 
     return { success: false, message: 'No se pudo conectar con la base de datos de usuarios' };
@@ -185,7 +182,7 @@ export const MembershipProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           setIsLoading(false);
           return { success: false, message: 'Solo está permitido registrarse e iniciar sesión con cuentas de Gmail (@gmail.com).' };
         }
-        const res = await fetchUserData(user.email, user.displayName || undefined, user.photoURL || undefined);
+        const res = await fetchUserData(cleanEmail, user.displayName || undefined, user.photoURL || undefined);
         setIsLoading(false);
         return res;
       }
@@ -194,10 +191,17 @@ export const MembershipProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     } catch (error: any) {
       setIsLoading(false);
       console.warn('Firebase Google Auth popup error, falling back:', error);
-      // If popup fails or is blocked in iframe, suggest email
+      let errorMsg = error.message || 'Error al iniciar sesión con Google';
+      if (error.code === 'auth/popup-closed-by-user') {
+        errorMsg = 'Ventana de Google cerrada antes de seleccionar tu cuenta.';
+      } else if (error.code === 'auth/operation-not-allowed') {
+        errorMsg = 'Debes habilitar el proveedor "Google" en la pestaña Authentication de tu Firebase Console.';
+      } else if (error.code === 'auth/unauthorized-domain') {
+        errorMsg = 'El dominio localhost no está en los dominios autorizados de Firebase Authentication.';
+      }
       return { 
         success: false, 
-        message: error.message || 'Ventana de Google cerrada o bloqueada. Puedes escribir tu correo de Gmail directamente.' 
+        message: errorMsg 
       };
     }
   };

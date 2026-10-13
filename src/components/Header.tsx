@@ -58,9 +58,13 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, onTabChange, savedCou
   const handleDirectGoogleLogin = async () => {
     setIsLoggingIn(true);
     try {
-      await loginWithGoogle();
-    } catch (err) {
+      const res = await loginWithGoogle();
+      if (!res.success && res.message && !res.message.includes('cerrada')) {
+        alert(res.message);
+      }
+    } catch (err: any) {
       console.warn('Google login error:', err);
+      alert('Error al iniciar sesión: ' + (err.message || 'Error desconocido'));
     } finally {
       setIsLoggingIn(false);
     }
