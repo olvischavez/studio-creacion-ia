@@ -235,7 +235,23 @@ export const AdminPanelTab: React.FC = () => {
     }
 
     try {
-      const res = await fetch('/api/memberships/admin/update-user', {
+      const updatedUser: UserProfile = {
+        ...targetUser,
+        plan: 'free',
+        status: 'expired',
+        expiresAt: new Date(Date.now() - 1000).toISOString(),
+        permissions: { ...tierConfig.freePermissions },
+      };
+
+      // 1. Direct Firestore update immediately
+      const safeId = targetUser.email.toLowerCase().replace(/[^a-zA-Z0-9_-]/g, '_');
+      await setDoc(doc(db, 'users', safeId), updatedUser, { merge: true });
+
+      // 2. Update local state immediately
+      setUsers(prev => prev.map(u => u.email.toLowerCase() === targetUser.email.toLowerCase() ? updatedUser : u));
+
+      // 3. Background server API notification (non-blocking)
+      fetch('/api/memberships/admin/update-user', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-admin-email': currentAdminEmail },
         body: JSON.stringify({
@@ -245,26 +261,16 @@ export const AdminPanelTab: React.FC = () => {
             revokePlan: true,
             plan: 'free',
             status: 'expired',
-            permissions: { ...tierConfig.freePermissions }
+            expiresAt: updatedUser.expiresAt,
+            permissions: updatedUser.permissions,
           },
         }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setUsers(prev => prev.map(u => u.email.toLowerCase() === targetUser.email.toLowerCase() ? data.user : u));
-        
-        // Sync to Firestore
-        try {
-          const safeId = targetUser.email.toLowerCase().replace(/[^a-zA-Z0-9_-]/g, '_');
-          await setDoc(doc(db, 'users', safeId), data.user, { merge: true });
-        } catch (e) {
-          console.warn('Firestore user sync notice:', e);
-        }
+      }).catch(() => {});
 
-        showNotification(`✓ Plan retirado a ${targetUser.email}. Sus temáticas guardadas se mantienen 100% preservadas en su cuenta de Gmail.`);
-      }
+      showNotification(`✓ Plan retirado a ${targetUser.email}. Sus temáticas guardadas se mantienen 100% preservadas.`);
     } catch (err) {
-      showNotification('Error al quitar el plan del usuario');
+      console.error('Error revoking plan:', err);
+      showNotification('Error al retirar el plan del usuario');
     }
   };
 
@@ -651,8 +657,7 @@ export const AdminPanelTab: React.FC = () => {
         </div>
         <h2 className="text-2xl font-bold text-white font-cinzel">Acceso Restringido • Panel de Administrador</h2>
         <p className="text-sm text-zinc-400 max-w-md mx-auto">
-          Este panel de control es exclusivo y editable únicamente para la cuenta del propietario:
-          <strong className="text-amber-400 block mt-1 font-mono">{ADMIN_EMAIL}</strong>
+          Este panel de control es de acceso exclusivo para la administración.
         </p>
         <p className="text-xs text-zinc-500">
           {currentUser ? `Tu cuenta actual (${currentUser.email}) no tiene permisos administrativos.` : 'Debes iniciar sesión con tu cuenta de Gmail Google.'}
@@ -1177,18 +1182,16 @@ export const AdminPanelTab: React.FC = () => {
                                 <span>Modificar</span>
                               </button>
 
-                              {/* Revoke Plan Button (if active) */}
-                              {isPlanActive && (
-                                <button
-                                  type="button"
-                                  onClick={() => handleRevokeUserPlan(u)}
-                                  className="px-2 py-1 rounded-lg bg-red-950/60 hover:bg-red-900 text-red-300 border border-red-800/50 text-[11px] font-bold flex items-center gap-1 transition-all cursor-pointer"
-                                  title="Quitar plan por falta de pago (mantiene sus temáticas guardadas)"
-                                >
-                                  <UserX className="w-3 h-3" />
-                                  <span>Quitar Plan</span>
-                                </button>
-                              )}
+                              {/* Revoke Plan Button */}
+                              <button
+                                type="button"
+                                onClick={() => handleRevokeUserPlan(u)}
+                                className="px-2.5 py-1 rounded-lg bg-red-950/80 hover:bg-red-900 text-red-300 border border-red-800 text-[11px] font-bold flex items-center gap-1 transition-all cursor-pointer shadow-sm"
+                                title="Quitar plan inmediatamente (bloquea acceso y mantiene sus temáticas guardadas)"
+                              >
+                                <UserX className="w-3 h-3" />
+                                <span>Quitar Plan</span>
+                              </button>
 
                               {/* Delete user */}
                               <button

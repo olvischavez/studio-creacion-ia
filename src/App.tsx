@@ -381,8 +381,8 @@ function MainAppContent() {
             <AdminPanelTab />
           ) : (
             <LockedTabPaywall 
-              tabName="Panel de Administrador"
-              description="Este panel solo está visible y es editable para el correo del propietario: olvischavezmustafa@gmail.com"
+              tabName="Panel de Control"
+              description="Esta sección está reservada para la administración del sistema."
             />
           )
         )}

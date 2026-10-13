@@ -34,24 +34,27 @@ export const QRPaymentModal: React.FC<QRPaymentModalProps> = ({
   const [selectedMethod, setSelectedMethod] = useState<'qr_bolivia' | 'binance'>('qr_bolivia');
   const [qrSettings, setQrSettings] = useState<QRPaymentSettings>(DEFAULT_QR_SETTINGS);
 
-  // Form to notify payment
+  // Form to notify payment (always starts empty)
   const [notifyEmail, setNotifyEmail] = useState('');
   const [notifyName, setNotifyName] = useState('');
   const [notifyReference, setNotifyReference] = useState('');
-  const [notifyDate, setNotifyDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [notifyDate, setNotifyDate] = useState('');
   const [notifyNote, setNotifyNote] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitSuccess, setSubmitSuccess] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isQrZoomed, setIsQrZoomed] = useState(false);
 
-  // Pre-fill email from current logged-in user
+  // Reset form fields when opening modal so inputs are always completely blank
   useEffect(() => {
-    if (currentUser?.email && !currentUser.email.includes('invitado')) {
-      setNotifyEmail(currentUser.email);
-      if (currentUser.name) setNotifyName(currentUser.name);
+    if (isOpen) {
+      setNotifyEmail('');
+      setNotifyName('');
+      setNotifyReference('');
+      setNotifyDate('');
+      setNotifyNote('');
     }
-  }, [currentUser]);
+  }, [isOpen]);
 
   // Fetch QR settings with real-time Firestore sync & backend fallback
   useEffect(() => {
@@ -557,7 +560,7 @@ export const QRPaymentModal: React.FC<QRPaymentModalProps> = ({
                     required
                     value={notifyEmail}
                     onChange={(e) => setNotifyEmail(e.target.value)}
-                    placeholder="tu-correo@gmail.com"
+                    placeholder=""
                     className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-red-500 transition-colors"
                   />
                 </div>
@@ -572,7 +575,7 @@ export const QRPaymentModal: React.FC<QRPaymentModalProps> = ({
                     required
                     value={notifyName}
                     onChange={(e) => setNotifyName(e.target.value)}
-                    placeholder="Ej: Juan Pérez"
+                    placeholder=""
                     className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-red-500 transition-colors"
                   />
                 </div>
@@ -589,7 +592,7 @@ export const QRPaymentModal: React.FC<QRPaymentModalProps> = ({
                     required
                     value={notifyReference}
                     onChange={(e) => setNotifyReference(e.target.value)}
-                    placeholder="Ej: 19482049"
+                    placeholder=""
                     className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-red-500 transition-colors"
                   />
                 </div>
@@ -617,7 +620,7 @@ export const QRPaymentModal: React.FC<QRPaymentModalProps> = ({
                   type="text"
                   value={notifyNote}
                   onChange={(e) => setNotifyNote(e.target.value)}
-                  placeholder="Ej: Transferencia realizada desde Banco Unión a las 14:30"
+                  placeholder=""
                   className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-red-500 transition-colors"
                 />
               </div>
